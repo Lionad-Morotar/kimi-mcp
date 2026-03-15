@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: qwibitai/nanoclaw/repo-tokens@v1
+      - uses: qwibitai/nanoclaw/repo-tokens@main
         with:
           include: 'src/**/*.ts'
           exclude: 'src/**/*.test.ts'
