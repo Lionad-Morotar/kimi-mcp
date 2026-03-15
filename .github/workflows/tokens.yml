@@ -19,11 +19,12 @@ jobs:
           include: 'src/**/*.ts'
           exclude: 'src/**/*.test.ts'
           context-window: 200000
+          badge-path: 'badge.svg'
 
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md
+          git add README.md badge.svg
           git diff --cached --quiet || git commit -m "docs: update token count badge"
           git push
