@@ -1,5 +1,7 @@
 # Kimi Tools MCP Server
 
+<!-- token-count --><!-- /token-count -->
+
 MCP 服务器，借助 kimi-cli 的力量实现网络搜索和内容获取功能。
 
 ## config
