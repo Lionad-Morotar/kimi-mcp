@@ -63,8 +63,22 @@ const FetchUrlSchema = z.object({
     .describe("要获取内容的网页 URL 地址")
 }).strict();
 
+// kimi-image 输入模式
+const ImageAnalysisSchema = z.object({
+  imagePath: z.string()
+    .min(1, "图片路径不能为空")
+    .describe("要分析的图片文件的绝对路径"),
+  scene: z.string()
+    .min(1, "场景描述不能为空")
+    .describe("图片使用的场景上下文，如 'web 站点开发'、'UI 设计审查'、'代码截图分析' 等。明确的场景描述能让分析更有针对性。"),
+  instruction: z.string()
+    .optional()
+    .describe("额外的分析指令，如 '重点关注布局问题'、'提取所有文字内容' 等")
+}).strict();
+
 type AgentInstruction = z.infer<typeof AgentInstructionSchema>;
 type FetchUrlInput = z.infer<typeof FetchUrlSchema>;
+type ImageAnalysisInput = z.infer<typeof ImageAnalysisSchema>;
 
 // 执行 kimi-search 任务
 async function executeKimiAgent(_instruction: string): Promise<string> {
@@ -144,10 +158,52 @@ URL: ${url}
   }
 }
 
+// 执行 kimi-image 任务 - 分析图片内容
+async function executeKimiImage(imagePath: string, scene: string, instruction?: string): Promise<string> {
+  let prompt = `用户在 ${scene} 任务中提供了一张图片，请详细描述并分析这张图片：\n\n${imagePath}`;
+
+  if (instruction && instruction.trim()) {
+    prompt += `\n\n额外分析要求：${instruction.trim()}`;
+  }
+
+  prompt += `\n\n请结合「${scene}」这一场景上下文，提供有针对性的分析：`;
+  prompt += `\n1. 图片内容的详细描述（元素、布局、色彩、文字等）`;
+  prompt += `\n2. 与场景相关的关键信息提取`;
+  prompt += `\n3. 基于场景的专业建议或洞察`;
+  prompt += `\n\n请用中文回答。`;
+
+  try {
+    const { stdout } = await execFileAsync("kimi", [
+      "-p",
+      JSON.stringify(prompt),
+      "--print",
+      "--output-format",
+      "stream-json",
+      "--final-message-only"
+    ], {
+      timeout: 300000,
+      maxBuffer: 10 * 1024 * 1024 // 10MB 缓冲区
+    });
+
+    return stdout.trim();
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes("ENOENT")) {
+        throw new Error("未找到 kimi 命令。请确保 kimi CLI 已安装并添加到 PATH 中。");
+      }
+      if (error.message.includes("ETIMEDOUT")) {
+        throw new Error("图片分析超时。请稍后重试或简化分析要求。");
+      }
+      throw new Error(`图片分析失败: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
 // 创建 MCP 服务器实例
 const server = new McpServer({
   name: "kimi-tools-mcp",
-  version: "0.2.0"
+  version: "0.3.0"
 });
 
 // 注册 kimi-search 工具
@@ -272,6 +328,69 @@ kimi-fetch 会：
         content: [{
           type: "text",
           text: `获取页面出错: ${errorMessage}`
+        }]
+      };
+    }
+  }
+);
+
+// 注册 kimi-image 工具
+server.registerTool(
+  "kimi-image",
+  {
+    title: "kimi-image",
+    description: `分析图片内容，结合场景上下文提供有针对性的专业分析。
+
+kimi-image 会：
+- 读取并理解图片的视觉内容
+- 结合用户指定的场景（如 web 开发、UI 设计等）进行分析
+- 提取与场景相关的关键信息
+- 提供基于场景的专业建议
+
+参数：
+  - imagePath (string): 要分析的图片文件的绝对路径
+  - scene (string): 场景上下文，如 "web 站点开发"、"UI 设计审查"、"代码截图分析" 等
+  - instruction (string, 可选): 额外的分析指令
+
+返回值：
+  结构化的图片分析报告，包括内容描述、关键信息提取和专业建议。
+
+使用场景：
+  ✅ 分析 UI 设计稿，提取布局、配色、组件信息
+  ✅ 审查代码截图，识别问题和改进点
+  ✅ 分析产品原型图，评估交互流程
+  ✅ 识别图片中的文字、图表、数据
+
+注意事项：
+  - 需要安装 kimi CLI 工具
+  - 图片分析通常需要 20-60 秒
+  - 场景描述越具体，分析结果越精准
+
+示例调用：
+  imagePath: "/Users/xxx/Desktop/design-mockup.png"
+  scene: "web 站点开发"
+  instruction: "重点关注响应式布局问题"`,
+    inputSchema: ImageAnalysisSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  async (params: ImageAnalysisInput) => {
+    try {
+      const result = await executeKimiImage(params.imagePath, params.scene, params.instruction);
+
+      return {
+        content: [{ type: "text", text: result }]
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{
+          type: "text",
+          text: `图片分析出错: ${errorMessage}`
         }]
       };
     }
