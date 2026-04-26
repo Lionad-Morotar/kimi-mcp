@@ -12,7 +12,10 @@ import { z } from "zod";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
-const execFileAsync = promisify(execFile);
+// 包装在对象中，使 vitest spy/mock 可以正确拦截内部调用
+export const executor = {
+  execFileAsync: promisify(execFile),
+};
 
 // Zod 模式用于输入验证
 const AgentInstructionSchema = z.object({
@@ -84,7 +87,7 @@ type ImageAnalysisInput = z.infer<typeof ImageAnalysisSchema>;
 async function executeKimiAgent(_instruction: string): Promise<string> {
   const instruction = `## Context\n* use 90 seconds timeout for tools\n\n以下是具体的网络搜索或分析任务\n\n---\n\n${_instruction}`
   try {
-    const { stdout } = await execFileAsync("kimi", [
+    const { stdout } = await executor.execFileAsync("kimi", [
       "-p",
       JSON.stringify(instruction),
       "--print",
@@ -131,7 +134,7 @@ URL: ${url}
 直接返回 markdown 格式的内容，不要添加额外的解释。`;
 
   try {
-    const { stdout } = await execFileAsync("kimi", [
+    const { stdout } = await executor.execFileAsync("kimi", [
       "-p",
       JSON.stringify(instruction),
       "--print",
@@ -173,7 +176,7 @@ async function executeKimiImage(imagePath: string, scene: string, instruction?: 
   prompt += `\n\n请用中文回答。`;
 
   try {
-    const { stdout } = await execFileAsync("kimi", [
+    const { stdout } = await executor.execFileAsync("kimi", [
       "-p",
       JSON.stringify(prompt),
       "--print",
@@ -404,7 +407,14 @@ async function main() {
   console.error("kimi-tools-mcp Server 正在通过 stdio 运行");
 }
 
-main().catch(error => {
-  console.error("服务器错误:", error);
-  process.exit(1);
-});
+// 仅在直接运行时启动服务器（vitest 等 import 场景不触发）
+if (process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.ts')) {
+  main().catch(error => {
+    console.error("服务器错误:", error);
+    process.exit(1);
+  });
+}
+
+// 导出供测试使用
+export { executeKimiAgent, executeKimiFetch, executeKimiImage };
+export { AgentInstructionSchema, FetchUrlSchema, ImageAnalysisSchema };
