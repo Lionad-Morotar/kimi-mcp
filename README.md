@@ -2,7 +2,7 @@
 
 <a href="https://github.com/qwibitai/nanoclaw/tree/main/repo-tokens"><img src="badge.svg" alt="Token count badge"></a>
 
-<!-- token-count --><a href="https://github.com/qwibitai/nanoclaw/tree/main/repo-tokens">2.4k tokens · 1% of context window</a><!-- /token-count -->
+<!-- token-count --><a href="https://github.com/qwibitai/nanoclaw/tree/main/repo-tokens">3.9k tokens · 2% of context window</a><!-- /token-count -->
 
 Kimi MCP 服务器，借助 kimi-cli 的力量实现网络搜索、内容获取和图片分析功能。
 
