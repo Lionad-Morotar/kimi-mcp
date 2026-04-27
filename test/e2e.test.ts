@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   executor,
   executeKimiAgent,
@@ -7,8 +7,10 @@ import {
   AgentInstructionSchema,
   FetchUrlSchema,
   ImageAnalysisSchema,
+  parseToolConfig,
 } from '../src/index'
 import { runKimiEval } from './helpers'
+import { logTest } from './logger'
 
 // 辅助：从最近一次调用中提取传给 kimi 的 prompt
 function getLastPrompt(): string {
@@ -61,6 +63,8 @@ describe('kimi-search', () => {
     expect(args).toContain('--output-format')
     expect(args).toContain('stream-json')
     expect(args).toContain('--final-message-only')
+
+    logTest('search-cli-args', 'CLI 参数', args.join(' '))
   })
 
   it('超时 5 分钟，buffer 10MB', async () => {
@@ -71,18 +75,24 @@ describe('kimi-search', () => {
     const opts = getLastOptions()
     expect(opts.timeout).toBe(300000)
     expect(opts.maxBuffer).toBe(10 * 1024 * 1024)
+
+    logTest('search-timeout', 'Options', JSON.stringify(opts, null, 2))
   })
 
   it('ENOENT 错误应提示安装 kimi CLI', async () => {
     vi.spyOn(executor, 'execFileAsync').mockRejectedValue(new Error('spawn kimi ENOENT'))
 
     await expect(executeKimiAgent('test')).rejects.toThrow('未找到 kimi 命令')
+
+    logTest('search-enoent', '错误信息', 'spawn kimi ENOENT → 未找到 kimi 命令')
   })
 
   it('ETIMEDOUT 错误应提示超时', async () => {
     vi.spyOn(executor, 'execFileAsync').mockRejectedValue(new Error('ETIMEDOUT'))
 
     await expect(executeKimiAgent('test')).rejects.toThrow('任务执行超时')
+
+    logTest('search-etimedout', '错误信息', 'ETIMEDOUT → 任务执行超时')
   })
 
   it('schema 应拒绝空 instruction', () => {
@@ -122,6 +132,8 @@ describe('kimi-fetch', () => {
 
     const opts = getLastOptions()
     expect(opts.timeout).toBe(120000)
+
+    logTest('fetch-timeout', 'Options', JSON.stringify(opts, null, 2))
   })
 
   it('schema 应拒绝空 URL', () => {
@@ -201,6 +213,8 @@ describe('kimi-image', () => {
 
     const opts = getLastOptions()
     expect(opts.timeout).toBe(300000)
+
+    logTest('image-timeout', 'Options', JSON.stringify(opts, null, 2))
   })
 
   it('schema 应拒绝空 imagePath', () => {
@@ -225,5 +239,65 @@ describe('kimi-image', () => {
       scene: 'test',
     })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('parseToolConfig', () => {
+  const originalEnv = process.env.KIMI_TOOLS
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.KIMI_TOOLS
+    } else {
+      process.env.KIMI_TOOLS = originalEnv
+    }
+  })
+
+  it('未设置环境变量时返回空数组', () => {
+    delete process.env.KIMI_TOOLS
+    const result = parseToolConfig()
+    expect(result).toEqual([])
+    logTest('config-unset', '环境变量', '未设置 (delete)')
+    logTest('config-unset', '返回结果', JSON.stringify(result))
+  })
+
+  it('空字符串时返回空数组', () => {
+    process.env.KIMI_TOOLS = ''
+    const result = parseToolConfig()
+    expect(result).toEqual([])
+    logTest('config-empty', '环境变量', '""')
+    logTest('config-empty', '返回结果', JSON.stringify(result))
+  })
+
+  it('"all" 返回全部工具', () => {
+    process.env.KIMI_TOOLS = 'all'
+    const result = parseToolConfig()
+    expect(result).toEqual(['search', 'fetch', 'image'])
+    logTest('config-all', '环境变量', '"all"')
+    logTest('config-all', '返回结果', JSON.stringify(result))
+  })
+
+  it('逗号分隔的字符串返回对应工具', () => {
+    process.env.KIMI_TOOLS = 'search,fetch'
+    const result = parseToolConfig()
+    expect(result).toEqual(['search', 'fetch'])
+    logTest('config-comma', '环境变量', '"search,fetch"')
+    logTest('config-comma', '返回结果', JSON.stringify(result))
+  })
+
+  it('自动去除空格', () => {
+    process.env.KIMI_TOOLS = ' search , fetch '
+    const result = parseToolConfig()
+    expect(result).toEqual(['search', 'fetch'])
+    logTest('config-trim', '环境变量', '" search , fetch "')
+    logTest('config-trim', '返回结果', JSON.stringify(result))
+  })
+
+  it('单个工具返回单元素数组', () => {
+    process.env.KIMI_TOOLS = 'image'
+    const result = parseToolConfig()
+    expect(result).toEqual(['image'])
+    logTest('config-single', '环境变量', '"image"')
+    logTest('config-single', '返回结果', JSON.stringify(result))
   })
 })

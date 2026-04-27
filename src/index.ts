@@ -17,6 +17,21 @@ export const executor = {
   execFileAsync: promisify(execFile),
 };
 
+/**
+ * 解析工具配置。
+ *
+ * 从环境变量 KIMI_TOOLS 读取要启用的工具列表。
+ * - 未设置或为空：不启用任何工具
+ * - "all"：启用全部工具
+ * - 逗号分隔：启用指定的工具
+ */
+export function parseToolConfig(): string[] {
+  const envValue = process.env.KIMI_TOOLS?.trim();
+  if (!envValue) return [];
+  if (envValue === 'all') return ['search', 'fetch', 'image'];
+  return envValue.split(',').map(s => s.trim()).filter(Boolean);
+}
+
 // Zod 模式用于输入验证
 const AgentInstructionSchema = z.object({
   instruction: z.string()
@@ -209,7 +224,10 @@ const server = new McpServer({
   version: "0.3.0"
 });
 
+const enabledTools = parseToolConfig();
+
 // 注册 kimi-search 工具
+if (enabledTools.includes('search')) {
 server.registerTool(
   "kimi-search",
   {
@@ -281,8 +299,10 @@ server.registerTool(
     }
   }
 );
+}
 
 // 注册 kimi-fetch 工具
+if (enabledTools.includes('fetch')) {
 server.registerTool(
   "kimi-fetch",
   {
@@ -336,8 +356,10 @@ kimi-fetch 会：
     }
   }
 );
+}
 
 // 注册 kimi-image 工具
+if (enabledTools.includes('image')) {
 server.registerTool(
   "kimi-image",
   {
@@ -399,6 +421,7 @@ kimi-image 会：
     }
   }
 );
+}
 
 // 主函数
 async function main() {

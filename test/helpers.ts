@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { logTest } from './logger'
 
 export interface EvalResult {
   pass: boolean
@@ -12,6 +13,8 @@ export interface EvalResult {
  * - prompt 构造是否符合预期
  * - 输出是否满足场景化分析的要求
  * - 错误处理是否合理
+ *
+ * 每次评估的结果会自动写入 test/.logs/ 目录。
  */
 export function runKimiEval(content: string, criteria: string): EvalResult {
   const evalPrompt = `你是一位严格的测试评估员。请评估以下内容是否满足给定的质量标准。
@@ -27,6 +30,20 @@ ${criteria}
 {"pass": boolean, "reason": "string"}
 
 不要添加 markdown 代码块标记，不要添加任何解释文字。只返回纯 JSON。`
+
+  // 获取当前测试名用于日志文件名
+  let testName = 'unknown'
+  try {
+    // @ts-ignore expect 在 vitest 环境中可用
+    testName = expect.getState().currentTestName || 'unknown'
+  } catch {
+    // 忽略
+  }
+  const safeName = testName.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60)
+
+  // 记录评估输入
+  logTest(safeName, '评估内容 (Content)', content)
+  logTest(safeName, '评估标准 (Criteria)', criteria)
 
   try {
     const stdout = execFileSync(
@@ -47,11 +64,17 @@ ${criteria}
     if (typeof parsed.pass !== 'boolean' || typeof parsed.reason !== 'string') {
       throw new Error('Invalid result shape')
     }
+
+    // 记录评估结果
+    logTest(safeName, '评估结果 (Result)', `pass: ${parsed.pass}\nreason: ${parsed.reason}`)
+
     return parsed
   } catch (err: any) {
+    const reason = `评估失败: ${err.message || String(err)}`
+    logTest(safeName, '评估结果 (Result)', `pass: false\nreason: ${reason}`)
     return {
       pass: false,
-      reason: `评估失败: ${err.message || String(err)}`,
+      reason,
     }
   }
 }
