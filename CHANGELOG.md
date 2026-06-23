@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-17
+
+### Added
+- 引入 Kimi CLI 兼容层（`src/cli/`）：`detector` 能力探测 + `adapter` 稳定接口 `runKimi` + 统一错误类型 `KimiCliError`
+- 自动探测 kimi CLI 的 flag surface（legacy `--print`/`--final-message-only` vs modern `-p` 默认 text），三段式降级（能力探测 → 版本兜底 → modern 降级），详见 `docs/adr/0001`
+- 新增 detector / adapter 单元测试，覆盖 legacy / modern / fallback 三路径与四类错误翻译
+
+### Changed
+- 代码按职责拆分：`src/cli/`（兼容层）、`src/tools/`（prompt 构造）、`src/schemas.ts`（输入校验）；`src/index.ts` 从 444 行瘦至约 280 行
+- 三个 MCP 工具统一经由 `runKimi` 调用 kimi，CLI flag 变动只需改兼容层一处
+
+### Fixed
+- 适配 kimi CLI 0.12.x：移除已废弃的 `--print` 与 `--final-message-only`，改用 modern surface（`-p` 默认 text）
+- 清洗 modern kimi -p 输出的包装噪音（开头 `• ` bullet 前缀、结尾 session 恢复尾注），保证工具返回干净内容
+
 ## [0.3.0] - 2026-04-27
 
 ### Added

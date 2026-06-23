@@ -4,18 +4,35 @@
  *
  * 此服务器将 kimi 作为智能代理(agent)暴露给 MCP 客户端，
  * 支持执行复杂的搜索、内容获取和信息整合任务。
+ *
+ * 兼容层（src/cli/）隔离 kimi CLI 的版本变动；三个工具统一通过 runKimi 调用。
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import {
+  AgentInstructionSchema,
+  FetchUrlSchema,
+  ImageAnalysisSchema,
+  type AgentInstruction,
+  type FetchUrlInput,
+  type ImageAnalysisInput,
+} from "./schemas.js";
+import { executeKimiAgent } from "./tools/search.js";
+import { executeKimiFetch } from "./tools/fetch.js";
+import { executeKimiImage } from "./tools/image.js";
+import { isVersionIncompatible } from "./cli/errors.js";
 
-// 包装在对象中，使 vitest spy/mock 可以正确拦截内部调用
-export const executor = {
-  execFileAsync: promisify(execFile),
-};
+// 兼容层 re-export：保持既有测试从 ../src/index 导入的路径不变
+export { executor } from "./cli/executor.js";
+export {
+  AgentInstructionSchema,
+  FetchUrlSchema,
+  ImageAnalysisSchema,
+} from "./schemas.js";
+export { executeKimiAgent } from "./tools/search.js";
+export { executeKimiFetch } from "./tools/fetch.js";
+export { executeKimiImage } from "./tools/image.js";
 
 /**
  * 解析工具配置。
@@ -32,196 +49,24 @@ export function parseToolConfig(): string[] {
   return envValue.split(',').map(s => s.trim()).filter(Boolean);
 }
 
-// Zod 模式用于输入验证
-const AgentInstructionSchema = z.object({
-  instruction: z.string()
-    .min(1, "指令不能为空")
-    .max(5000, "指令不能超过 5000 个字符")
-    .describe(`完整的任务指令，描述需要 kimi-search 执行的搜索或分析任务。
-
-指令应包含：
-1. 搜索关键词或搜索主题
-2. 具体目标（要获取什么信息）
-3. 执行步骤（如何获取和处理信息）
-4. 输出格式要求
-
-示例指令：
----
-搜索："bun package manager vs pnpm benchmark 2025"
-
-目标：了解 Bun 作为新兴 JavaScript 包管理器与 pnpm 的对比，包括性能基准测试和功能差异
-
-使用 WebSearch 工具执行网络搜索。
-对于每个相关结果：
-1. 使用 WebFetch 或浏览器工具获取页面内容
-2. 提取与搜索目标相关的关键发现
-3. 记录：URL、标题、要点、相关度评分（1-5）
-
-以以下格式返回结构化结果：
-\`\`\`
-## {query}
-
-### 结果 1：{title}
-- URL: {url}
-- 相关度：{1-5}/5
-- 关键发现：
-  - {要点}
-- 引用：
-  - "{相关摘录}"
-\`\`\`
-
-关注事实信息和有数据支持的论断。
----`)
-}).strict();
-
-// kimi-fetch 输入模式
-const FetchUrlSchema = z.object({
-  url: z.string()
-    .min(1, "URL 不能为空")
-    .describe("要获取内容的网页 URL 地址")
-}).strict();
-
-// kimi-image 输入模式
-const ImageAnalysisSchema = z.object({
-  imagePath: z.string()
-    .min(1, "图片路径不能为空")
-    .describe("要分析的图片文件的绝对路径"),
-  scene: z.string()
-    .min(1, "场景描述不能为空")
-    .describe("图片使用的场景上下文，如 'web 站点开发'、'UI 设计审查'、'代码截图分析' 等。明确的场景描述能让分析更有针对性。"),
-  instruction: z.string()
-    .optional()
-    .describe("额外的分析指令，如 '重点关注布局问题'、'提取所有文字内容' 等")
-}).strict();
-
-type AgentInstruction = z.infer<typeof AgentInstructionSchema>;
-type FetchUrlInput = z.infer<typeof FetchUrlSchema>;
-type ImageAnalysisInput = z.infer<typeof ImageAnalysisSchema>;
-
-// 执行 kimi-search 任务
-async function executeKimiAgent(_instruction: string): Promise<string> {
-  const instruction = `## Context\n* use 90 seconds timeout for tools\n\n以下是具体的网络搜索或分析任务\n\n---\n\n${_instruction}`
-  try {
-    const { stdout } = await executor.execFileAsync("kimi", [
-      "-p",
-      JSON.stringify(instruction),
-      "--print",
-      "--output-format",
-      "stream-json",
-      "--final-message-only"
-    ], {
-      timeout: 300000,
-      maxBuffer: 10 * 1024 * 1024 // 10MB 缓冲区
-    });
-
-    return stdout.trim();
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes("ENOENT")) {
-        throw new Error("未找到 kimi 命令。请确保 kimi CLI 已安装并添加到 PATH 中。");
-      }
-      if (error.message.includes("ETIMEDOUT")) {
-        throw new Error("任务执行超时。kimi-search 可能需要更长时间处理复杂任务，请稍后重试或简化任务。");
-      }
-      throw new Error(`任务执行失败: ${error.message}`);
-    }
-    throw error;
+/**
+ * 统一的工具错误处理：按 code 诊断 + 翻译为 MCP content。
+ * INCOMPATIBLE 时提示版本排查（KimiCliError.code 的生产消费点，见 QA Bug-3）。
+ */
+function handleToolError(error: unknown, label: string) {
+  if (isVersionIncompatible(error)) {
+    console.warn('[kimi-tools-mcp] 检测到 kimi CLI 版本不兼容，请检查 kimi --version 与 --help');
   }
-}
-
-// 执行 kimi-fetch 任务 - 获取单个 URL 的页面内容
-async function executeKimiFetch(url: string): Promise<string> {
-  const instruction = `获取并以 md 格式返回结构化的页面内容：
-
-URL: ${url}
-
-要求：
-1. 使用 WebFetch 或浏览器工具获取页面完整内容
-2. 提取页面的核心信息（标题、主要内容、关键数据等）
-3. 返回格式化的 markdown，包括：
-   - 页面标题
-   - 内容摘要
-   - 结构化正文（保留重要段落、列表、代码块等）
-   - 关键链接（如有）
-4. 过滤掉广告、导航栏、页脚等无关内容
-5. 不要修改或注释页面内容
-
-直接返回 markdown 格式的内容，不要添加额外的解释。`;
-
-  try {
-    const { stdout } = await executor.execFileAsync("kimi", [
-      "-p",
-      JSON.stringify(instruction),
-      "--print",
-      "--output-format",
-      "stream-json",
-      "--final-message-only"
-    ], {
-      timeout: 120000,
-      maxBuffer: 10 * 1024 * 1024 // 10MB 缓冲区
-    });
-
-    return stdout.trim();
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes("ENOENT")) {
-        throw new Error("未找到 kimi 命令。请确保 kimi CLI 已安装并添加到 PATH 中。");
-      }
-      if (error.message.includes("ETIMEDOUT")) {
-        throw new Error("获取页面超时。请检查 URL 是否可访问，或稍后重试。");
-      }
-      throw new Error(`获取页面失败: ${error.message}`);
-    }
-    throw error;
-  }
-}
-
-// 执行 kimi-image 任务 - 分析图片内容
-async function executeKimiImage(imagePath: string, scene: string, instruction?: string): Promise<string> {
-  let prompt = `用户在 ${scene} 任务中提供了一张图片，请详细描述并分析这张图片：\n\n${imagePath}`;
-
-  if (instruction && instruction.trim()) {
-    prompt += `\n\n额外分析要求：${instruction.trim()}`;
-  }
-
-  prompt += `\n\n请结合「${scene}」这一场景上下文，提供有针对性的分析：`;
-  prompt += `\n1. 图片内容的详细描述（元素、布局、色彩、文字等）`;
-  prompt += `\n2. 与场景相关的关键信息提取`;
-  prompt += `\n3. 基于场景的专业建议或洞察`;
-  prompt += `\n\n请用中文回答。`;
-
-  try {
-    const { stdout } = await executor.execFileAsync("kimi", [
-      "-p",
-      JSON.stringify(prompt),
-      "--print",
-      "--output-format",
-      "stream-json",
-      "--final-message-only"
-    ], {
-      timeout: 300000,
-      maxBuffer: 10 * 1024 * 1024 // 10MB 缓冲区
-    });
-
-    return stdout.trim();
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes("ENOENT")) {
-        throw new Error("未找到 kimi 命令。请确保 kimi CLI 已安装并添加到 PATH 中。");
-      }
-      if (error.message.includes("ETIMEDOUT")) {
-        throw new Error("图片分析超时。请稍后重试或简化分析要求。");
-      }
-      throw new Error(`图片分析失败: ${error.message}`);
-    }
-    throw error;
-  }
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return {
+    content: [{ type: "text" as const, text: `${label}: ${errorMessage}` }],
+  };
 }
 
 // 创建 MCP 服务器实例
 const server = new McpServer({
   name: "kimi-tools-mcp",
-  version: "0.3.0"
+  version: "0.4.0"
 });
 
 const enabledTools = parseToolConfig();
@@ -289,13 +134,7 @@ server.registerTool(
         content: [{ type: "text", text: result }]
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        content: [{
-          type: "text",
-          text: `任务执行出错: ${errorMessage}`
-        }]
-      };
+      return handleToolError(error, '任务执行出错');
     }
   }
 );
@@ -346,13 +185,7 @@ kimi-fetch 会：
         content: [{ type: "text", text: result }]
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        content: [{
-          type: "text",
-          text: `获取页面出错: ${errorMessage}`
-        }]
-      };
+      return handleToolError(error, '获取页面出错');
     }
   }
 );
@@ -411,13 +244,7 @@ kimi-image 会：
         content: [{ type: "text", text: result }]
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        content: [{
-          type: "text",
-          text: `图片分析出错: ${errorMessage}`
-        }]
-      };
+      return handleToolError(error, '图片分析出错');
     }
   }
 );
@@ -437,7 +264,3 @@ if (process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.ts
     process.exit(1);
   });
 }
-
-// 导出供测试使用
-export { executeKimiAgent, executeKimiFetch, executeKimiImage };
-export { AgentInstructionSchema, FetchUrlSchema, ImageAnalysisSchema };

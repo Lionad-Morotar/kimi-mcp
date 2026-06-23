@@ -48,17 +48,15 @@ ${criteria}
   try {
     const stdout = execFileSync(
       'kimi',
-      [
-        '-p',
-        JSON.stringify(evalPrompt),
-        '--print',
-        '--final-message-only',
-      ],
+      // modern surface（kimi ≥0.12）：-p 默认 text 输出，直接返回纯文本
+      ['-p', JSON.stringify(evalPrompt)],
       { encoding: 'utf-8', timeout: 60000, maxBuffer: 10 * 1024 * 1024 },
     )
 
-    // kimi --final-message-only 直接返回文本
-    let cleaned = stdout.trim().replace(/^```json\s*|\s*```$/g, '')
+    // kimi -p 默认输出纯文本；modern 版本可能在输出前加 markdown 前缀（如 "• "），
+    // 或包裹 ```json 代码块。提取首个 {...} JSON 对象以稳健解析。
+    const jsonMatch = stdout.match(/\{[\s\S]*\}/)
+    let cleaned = (jsonMatch ? jsonMatch[0] : stdout).trim().replace(/^```json\s*|\s*```$/g, '')
 
     const parsed = JSON.parse(cleaned) as EvalResult
     if (typeof parsed.pass !== 'boolean' || typeof parsed.reason !== 'string') {

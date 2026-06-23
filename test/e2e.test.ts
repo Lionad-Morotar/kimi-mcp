@@ -50,19 +50,20 @@ describe('kimi-search', () => {
     if (!result.pass) console.error('search prompt eval:', result.reason)
   })
 
-  it('应使用正确的 kimi CLI 参数', async () => {
+  it('应经由兼容层以 modern 参数调用 kimi（仅 -p + prompt）', async () => {
     vi.spyOn(executor, 'execFileAsync').mockResolvedValue({ stdout: 'ok', stderr: '' })
 
     await executeKimiAgent('test')
 
-    const lastCall = (executor.execFileAsync as any).mock.calls.at(-1)
+    const calls = (executor.execFileAsync as any).mock.calls
+    // 最后一次调用是实际执行（-p prompt）；命令构造细节由 adapter.test.ts 覆盖
+    const lastCall = calls.at(-1)
     expect(lastCall![0]).toBe('kimi')
     const args = lastCall![1] as string[]
     expect(args).toContain('-p')
-    expect(args).toContain('--print')
-    expect(args).toContain('--output-format')
-    expect(args).toContain('stream-json')
-    expect(args).toContain('--final-message-only')
+    // modern surface 不应再出现已移除的 legacy flag
+    expect(args).not.toContain('--print')
+    expect(args).not.toContain('--final-message-only')
 
     logTest('search-cli-args', 'CLI 参数', args.join(' '))
   })
