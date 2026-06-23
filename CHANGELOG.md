@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-06-17
+## [0.4.0] - 2026-06-23
 
 ### Added
 - 引入 Kimi CLI 兼容层（`src/cli/`）：`detector` 能力探测 + `adapter` 稳定接口 `runKimi` + 统一错误类型 `KimiCliError`
