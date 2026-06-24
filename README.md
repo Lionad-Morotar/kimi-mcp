@@ -6,6 +6,8 @@
 
 Kimi MCP 服务器，借助 kimi-cli 的力量实现网络搜索、内容获取和图片分析功能。
 
+> tips: 当前项目是 Kimi CLI 的 MCP 薄封装，对于复杂需求也许你需要 [`Kimi Agent SDK`](https://github.com/MoonshotAI/kimi-agent-sdk/)
+
 ## config
 
 ```json
