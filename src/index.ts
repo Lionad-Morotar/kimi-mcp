@@ -14,13 +14,16 @@ import {
   AgentInstructionSchema,
   FetchUrlSchema,
   ImageAnalysisSchema,
+  VideoAnalysisSchema,
   type AgentInstruction,
   type FetchUrlInput,
   type ImageAnalysisInput,
+  type VideoAnalysisInput,
 } from "./schemas.js";
 import { executeKimiAgent } from "./tools/search.js";
 import { executeKimiFetch } from "./tools/fetch.js";
 import { executeKimiImage } from "./tools/image.js";
+import { executeKimiVideo } from "./tools/video.js";
 import { isVersionIncompatible } from "./cli/errors.js";
 
 // 兼容层 re-export：保持既有测试从 ../src/index 导入的路径不变
@@ -29,10 +32,12 @@ export {
   AgentInstructionSchema,
   FetchUrlSchema,
   ImageAnalysisSchema,
+  VideoAnalysisSchema,
 } from "./schemas.js";
 export { executeKimiAgent } from "./tools/search.js";
 export { executeKimiFetch } from "./tools/fetch.js";
 export { executeKimiImage } from "./tools/image.js";
+export { executeKimiVideo } from "./tools/video.js";
 
 /**
  * 解析工具配置。
@@ -45,7 +50,7 @@ export { executeKimiImage } from "./tools/image.js";
 export function parseToolConfig(): string[] {
   const envValue = process.env.KIMI_TOOLS?.trim();
   if (!envValue) return [];
-  if (envValue === 'all') return ['search', 'fetch', 'image'];
+  if (envValue === 'all') return ['search', 'fetch', 'image', 'video'];
   return envValue.split(',').map(s => s.trim()).filter(Boolean);
 }
 
@@ -245,6 +250,66 @@ kimi-image 会：
       };
     } catch (error) {
       return handleToolError(error, '图片分析出错');
+    }
+  }
+);
+}
+
+// 注册 kimi-video 工具
+if (enabledTools.includes('video')) {
+server.registerTool(
+  "kimi-video",
+  {
+    title: "kimi-video",
+    description: `分析视频内容，结合场景上下文提供有针对性的专业分析。
+
+kimi-video 会：
+- 读取并理解视频的视听内容
+- 根据场景自行决定最合适的分析方式（如抽帧、描述动作序列、识别关键事件等）
+- 提取与场景相关的关键信息
+- 提供基于场景的专业建议
+
+参数：
+  - videoPath (string): 要分析的视频文件的绝对路径
+  - scene (string): 场景上下文，如 "产品演示审查"、"UI 动效评估"、"教学视频分析" 等
+  - instruction (string, 可选): 额外的分析指令
+
+返回值：
+  结构化的视频分析报告，包括内容概述、关键信息提取和专业建议。
+
+使用场景：
+  ✅ 分析产品演示视频，提取功能展示流程
+  ✅ 审查 UI 动效，评估转场和节奏
+  ✅ 分析教学视频，梳理步骤和要点
+  ✅ 识别视频中的人物、物体、文字和事件顺序
+
+注意事项：
+  - 需要安装 kimi CLI 工具
+  - 视频分析通常需要 30-120 秒，复杂视频可能更长
+  - 视频文件大小不得超过 100MB（Kimi CLI 限制）
+  - 场景描述越具体，分析结果越精准
+
+示例调用：
+  videoPath: "/Users/xxx/Desktop/demo.mp4"
+  scene: "产品演示审查"
+  instruction: "重点关注核心功能展示顺序"`,
+    inputSchema: VideoAnalysisSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  async (params: VideoAnalysisInput) => {
+    try {
+      const result = await executeKimiVideo(params.videoPath, params.scene, params.instruction);
+
+      return {
+        content: [{ type: "text", text: result }]
+      };
+    } catch (error) {
+      return handleToolError(error, '视频分析出错');
     }
   }
 );

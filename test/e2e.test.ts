@@ -4,15 +4,21 @@ import {
   executeKimiAgent,
   executeKimiFetch,
   executeKimiImage,
+  executeKimiVideo,
   AgentInstructionSchema,
   FetchUrlSchema,
   ImageAnalysisSchema,
+  VideoAnalysisSchema,
   parseToolConfig,
 } from '../src/index'
 import { runKimiEval } from './helpers'
 import { logTest } from './logger'
 
-// 辅助：从最近一次调用中提取传给 kimi 的 prompt
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+const testVideoPath = join(projectRoot, 'zRefs', 'video-samples', 'sample-small.mp4')
 function getLastPrompt(): string {
   const lastCall = (executor.execFileAsync as any).mock?.calls?.at(-1)
   expect(lastCall).toBeDefined()
@@ -243,6 +249,115 @@ describe('kimi-image', () => {
   })
 })
 
+describe('kimi-video', () => {
+  beforeEach(() => {
+    vi.spyOn(executor, 'execFileAsync').mockReset()
+  })
+
+  it('prompt 应引用场景并要求 kimi 自行决定分析方式', async () => {
+    vi.spyOn(executor, 'execFileAsync').mockResolvedValue({ stdout: '视频分析完成', stderr: '' })
+
+    await executeKimiVideo(testVideoPath, '产品演示审查')
+
+    const prompt = getLastPrompt()
+    const result = runKimiEval(
+      prompt,
+      '这个 prompt 是给 kimi CLI 的视频分析指令。要求：' +
+        '1. 必须引用场景 "产品演示审查"；' +
+        '2. 必须明确说明是在该场景下分析视频；' +
+        '3. 必须要求 kimi 自行决定最合适的分析方式（如抽帧、动作序列、关键事件等）；' +
+        '4. 必须引用视频路径 "' + testVideoPath + '"；' +
+        '5. 必须有结构化的中文输出要求。',
+    )
+
+    expect(result.pass).toBe(true)
+    if (!result.pass) console.error('video prompt eval:', result.reason)
+  })
+
+  it('有 instruction 时 prompt 应包含额外分析要求', async () => {
+    vi.spyOn(executor, 'execFileAsync').mockResolvedValue({ stdout: '分析完成', stderr: '' })
+
+    await executeKimiVideo(
+      testVideoPath,
+      'UI 动效评估',
+      '重点关注转场节奏',
+    )
+
+    const prompt = getLastPrompt()
+    const result = runKimiEval(
+      prompt,
+      '这个 prompt 是给 kimi CLI 的视频分析指令。要求：' +
+        '1. 必须包含额外分析要求，与 "重点关注转场节奏" 相关；' +
+        '2. 场景 "UI 动效评估" 必须在 prompt 中被引用；' +
+        '3. 不能丢失自行决定分析方式的结构化输出要求。',
+    )
+
+    expect(result.pass).toBe(true)
+    if (!result.pass) console.error('video+instruction eval:', result.reason)
+  })
+
+  it('无 instruction 时不应追加额外要求', async () => {
+    vi.spyOn(executor, 'execFileAsync').mockResolvedValue({ stdout: '分析完成', stderr: '' })
+
+    await executeKimiVideo(testVideoPath, '教学视频分析')
+
+    const prompt = getLastPrompt()
+    const result = runKimiEval(
+      prompt,
+      '这个 prompt 是给 kimi CLI 的视频分析指令。要求：' +
+        '1. 场景 "教学视频分析" 必须在 prompt 中被引用；' +
+        '2. prompt 中不应包含与 "额外分析"、"额外要求" 相关的指令（因为没有提供额外指令）；' +
+        '3. 必须有结构化输出要求和自行决定分析方式的说明。',
+    )
+
+    expect(result.pass).toBe(true)
+    if (!result.pass) console.error('video no-instruction eval:', result.reason)
+  })
+
+  it('超时 10 分钟', async () => {
+    vi.spyOn(executor, 'execFileAsync').mockResolvedValue({ stdout: 'ok', stderr: '' })
+
+    await executeKimiVideo(testVideoPath, 'test')
+
+    const opts = getLastOptions()
+    expect(opts.timeout).toBe(600000)
+
+    logTest('video-timeout', 'Options', JSON.stringify(opts, null, 2))
+  })
+
+  it('schema 应拒绝空 videoPath', () => {
+    const result = VideoAnalysisSchema.safeParse({
+      videoPath: '',
+      scene: 'test',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('schema 应拒绝空 scene', () => {
+    const result = VideoAnalysisSchema.safeParse({
+      videoPath: testVideoPath,
+      scene: '',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('schema 应允许省略 instruction', () => {
+    const result = VideoAnalysisSchema.safeParse({
+      videoPath: testVideoPath,
+      scene: 'test',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('文件不存在时应提前抛出可读错误', async () => {
+    vi.spyOn(executor, 'execFileAsync').mockResolvedValue({ stdout: 'ok', stderr: '' })
+
+    await expect(
+      executeKimiVideo('/this/path/does/not/exist.mp4', 'test'),
+    ).rejects.toThrow('视频文件不存在或无法访问')
+  })
+})
+
 describe('parseToolConfig', () => {
   const originalEnv = process.env.KIMI_TOOLS
 
@@ -273,7 +388,7 @@ describe('parseToolConfig', () => {
   it('"all" 返回全部工具', () => {
     process.env.KIMI_TOOLS = 'all'
     const result = parseToolConfig()
-    expect(result).toEqual(['search', 'fetch', 'image'])
+    expect(result).toEqual(['search', 'fetch', 'image', 'video'])
     logTest('config-all', '环境变量', '"all"')
     logTest('config-all', '返回结果', JSON.stringify(result))
   })

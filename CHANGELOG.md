@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 新增 `kimi-video` 工具：分析本地视频内容，支持场景化指令并由 kimi 自行决定分析方式（抽帧、动作序列、关键事件等）
+- `kimi-video` 单独设置 10 分钟超时，并在调用前校验文件存在、可读及 100MB 大小限制（对齐 Kimi CLI `ReadMediaFile` 能力边界）
+
+### Changed
+- `KIMI_TOOLS=all` 现在同时启用 `search`、`fetch`、`image`、`video`
+- Vitest 配置排除 `zRefs/**`，避免调试目录中的第三方测试被误扫描
+
+### Fixed
+- 修正 `zRefs/video-samples/sample-small.mp4` 的嵌套目录结构，使其位于预期路径
 ## [0.4.0] - 2026-06-23
 
 ### Added

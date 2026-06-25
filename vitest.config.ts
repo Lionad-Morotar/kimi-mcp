@@ -9,5 +9,7 @@ export default defineConfig({
     hookTimeout: 30000,
     // 允许在测试中使用 import.meta.url
     pool: 'forks',
+    // zRefs 用于存放第三方源码与调试资料，不应纳入测试扫描
+    exclude: ['zRefs/**', 'node_modules/**', 'dist/**'],
   },
 });

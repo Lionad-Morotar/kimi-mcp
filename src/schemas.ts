@@ -62,6 +62,20 @@ export const ImageAnalysisSchema = z.object({
     .describe("额外的分析指令，如 '重点关注布局问题'、'提取所有文字内容' 等")
 }).strict();
 
+// kimi-video 输入模式
+export const VideoAnalysisSchema = z.object({
+  videoPath: z.string()
+    .min(1, "视频路径不能为空")
+    .describe("要分析的视频文件的绝对路径"),
+  scene: z.string()
+    .min(1, "场景描述不能为空")
+    .describe("视频使用的场景上下文，如 '产品演示审查'、'UI 动效评估'、'教学视频分析' 等。明确的场景描述能让分析更有针对性。"),
+  instruction: z.string()
+    .optional()
+    .describe("额外的分析指令，如 '重点关注转场节奏'、'提取关键动作顺序' 等")
+}).strict();
+
 export type AgentInstruction = z.infer<typeof AgentInstructionSchema>;
 export type FetchUrlInput = z.infer<typeof FetchUrlSchema>;
 export type ImageAnalysisInput = z.infer<typeof ImageAnalysisSchema>;
+export type VideoAnalysisInput = z.infer<typeof VideoAnalysisSchema>;
