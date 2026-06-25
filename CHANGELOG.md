@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-25
+
+### Fixed
+- 修复 `npx` 启动时 MCP server 立即退出的问题：原 `process.argv[1].endsWith('index.js')` 判断在 npx shim（`.bin/main`）场景下失效，改为排除 vitest 即启动服务器
+- `.gitignore` 补充 `zRefs` 排除，避免发布包包含调试目录
+
+### Changed
+- `McpServer` 硬编码版本号随 package.json 同步为 `0.4.2`
+
 ## [0.4.1] - 2026-06-25
 
 ### Added

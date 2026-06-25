@@ -71,7 +71,7 @@ function handleToolError(error: unknown, label: string) {
 // 创建 MCP 服务器实例
 const server = new McpServer({
   name: "kimi-tools-mcp",
-  version: "0.4.0"
+  version: "0.4.2"
 });
 
 const enabledTools = parseToolConfig();
@@ -322,8 +322,10 @@ async function main() {
   console.error("kimi-tools-mcp Server 正在通过 stdio 运行");
 }
 
-// 仅在直接运行时启动服务器（vitest 等 import 场景不触发）
-if (process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.ts')) {
+// 仅在直接运行时启动服务器（vitest 等 import 场景不触发）。
+// npx 执行时 process.argv[1] 是 .bin 下的 shim（如 .bin/main），不是 index.js，
+// 因此用「排除 vitest」比「匹配 index.js」更可靠。
+if (!process.argv[1]?.includes('vitest')) {
   main().catch(error => {
     console.error("服务器错误:", error);
     process.exit(1);
